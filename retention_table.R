@@ -1,7 +1,9 @@
 library(tidyverse)
-#library(readxl)
+library(readxl)
 library(lubridate)
 library(glue)
+library(zoo)
+library(reshape2)
 
 df <- read_excel("Online Retail.xlsx")
 
@@ -56,8 +58,8 @@ retention_rate_melt %>%
         axis.title = element_text(size = 16),
         panel.grid = element_blank(),
         panel.border = element_blank()) +
-  labs(y= "cohort",
-       x = "month") +
+  labs(y= "cohort start month",
+       x = "month #") +
   guides(fill=FALSE)
 
 
