@@ -81,16 +81,94 @@ rfm %>%
 cols <- c("#D6AF36","#A7A7AD","#824A02")
 
 rfm %>%
-  ggplot(aes(x = RecencyDays, fill = Customer_Segment)) +
+  ggplot(aes(x = log(RecencyDays), fill = Customer_Segment)) +
   geom_density(alpha = .7) +
-  scale_fill_manual(values = cols)
+  scale_fill_manual(values = cols) +
+  theme_light()
 
 rfm %>%
-  ggplot(aes(x = log(Frequency), fill = Customer_Segment)) +
+  ggplot(aes(x = log(Frequency+1), fill = Customer_Segment)) +
   geom_density(alpha = .7)  +
-  scale_fill_manual(values = cols)
+  scale_fill_manual(values = cols) +
+  theme_light()
 
 rfm %>%
   ggplot(aes(x = log(Spend), fill = Customer_Segment)) +
   geom_density(alpha = .7)  +
-  scale_fill_manual(values = cols)
+  scale_fill_manual(values = cols) +
+  theme_light()
+
+# plot faceted distribution with long format
+
+rfm %>% 
+  mutate(RecencyDays = log(RecencyDays),Frequency = log(Frequency), Spend = log(Spend+1)) %>%
+  select(CustomerID,Customer_Segment,RecencyDays,Frequency,Spend) %>% 
+  group_by(Customer_Segment,CustomerID) %>% 
+  gather(metric, value, -CustomerID, - Customer_Segment) %>%
+  ggplot(aes(x=value, fill = Customer_Segment)) +
+  geom_density(alpha=.7) +
+  facet_wrap(~metric,scales = "free") +
+  scale_fill_manual(values = cols) +
+  theme_light()
+
+# preprocess data: log, center, scale
+
+rfm_norm <- rfm %>%
+  select(RecencyDays,Frequency,Spend) %>% 
+  apply(2,function(x) log(x+1)) %>%
+  apply(2, function(x) round(x-mean(x,na.rm=T),1)) %>%
+  scale() %>%
+  as_tibble %>%
+  mutate(CustomerID = rfm$CustomerID,
+         Customer_Segment = rfm$Customer_Segment)
+
+# snake plot
+rfm_norm %>%
+  group_by(Customer_Segment,CustomerID) %>%
+  gather(metric, value, -CustomerID, - Customer_Segment) %>%
+  group_by(Customer_Segment,metric) %>%
+  summarise(value = mean(value, na.rm = T)) %>%
+  ungroup() %>%
+  mutate(metric = fct_relevel(metric, "RecencyDays","Frequency","Spend")) %>%
+  ggplot(aes(x=factor(metric),y=value,group=Customer_Segment,colour = Customer_Segment)) +
+  geom_line(size=1.5) +
+  geom_point(size=2) +
+  scale_colour_manual(values = cols) +
+  theme_light()
+
+# relative variable importance
+
+group_means <- rfm %>%
+  group_by(Customer_Segment) %>%
+  summarise(Recency = mean(RecencyDays),
+            Frequency = mean(Frequency),
+            Monetary = mean(Spend,na.rm=T)) %>%
+  select(-Customer_Segment)
+
+pop_means <- rfm %>%
+  summarise(Recency = mean(RecencyDays),
+            Frequency = mean(Frequency),
+            Monetary = mean(Spend,na.rm=T)) %>% 
+  as_vector()
+
+relative_imp <- group_means %>% 
+  apply(2,function(x) x / pop_means - 1) %>%
+  as_tibble() %>%
+  mutate(Customer_Segment = levels(rfm$Customer_Segment)) %>%
+  select(Customer_Segment, everything())
+
+# relative variable importance heatmap
+
+relative_imp %>%
+  gather(metric, value, - Customer_Segment) %>%
+  mutate(Customer_Segment = fct_relevel(Customer_Segment, "Bronze","Silver","Gold"),
+         metric = fct_relevel(metric, "Recency", "Frequency", "Monetary")) %>%
+  ggplot(aes(x = metric, y = Customer_Segment)) +
+    geom_raster(aes(fill= value)) +
+    geom_text(aes(label = glue::glue("{round(value,2)}")), size = 10, color = "snow") +
+  theme_light() +
+  theme(axis.text = element_text(size = 16))
+
+  
+
+
