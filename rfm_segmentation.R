@@ -40,6 +40,15 @@ frequency <- df %>%
   summarise(Frequency = n()) %>%
   mutate(F_Quantile = ntile(Frequency, 4)) # quartile
 
+# Tenure: days since first transaction (not used)
+
+last_date <- max(as_date(df$InvoiceDate))
+
+tenure <- df %>%
+  group_by(CustomerID) %>%
+  summarise(Tenure = as.numeric(last_date - min(as_date(InvoiceDate)))) %>%
+  mutate(T_Quantile = ntile(desc(Tenure), 4)) # quartile
+
 # JOIN
 
 rfm <- list(recency,frequency,monetary) %>% 
