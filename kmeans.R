@@ -1,4 +1,5 @@
-# RFM segmentation
+
+# RFM SEGMENTATION WITH K-MEANS CLUSTERING
 
 library(tidyverse)
 library(readxl)
@@ -61,7 +62,7 @@ rfm %<>%
                                       Score > 0 ~ "Bronze")) %>%
   mutate(Customer_Segment = fct_relevel(Customer_Segment,"Gold","Silver","Bronze"))
 
-# preprocess data: log, center, scale
+# preprocess data: log, center, scale 
 
 rfm_norm <- rfm %>%
   select(RecencyDays,Frequency,Spend) %>% 
@@ -72,6 +73,8 @@ rfm_norm <- rfm %>%
   mutate(CustomerID = rfm$CustomerID,
          Customer_Segment = rfm$Customer_Segment)
 
+# K-means clustering
+
 fviz_nbclust(rfm_norm[,1:3], kmeans, method = "wss") # 3 clusters is reasonable
 
 rfm_clust <- kmeans(rfm_norm[,1:3], centers=3, nstart = 25)
@@ -79,5 +82,19 @@ rfm_clust <- kmeans(rfm_norm[,1:3], centers=3, nstart = 25)
 table(rfm$Customer_Segment,rfm_clust$cluster)
 
 fviz_cluster(rfm_clust, data = rfm_norm[,1:3], geom=c("point")) +
+  theme_light()
+
+# snake plot with cluster means
+
+rfm_clust$centers %>% 
+  as_tibble() %>%
+  mutate(Customer_Segment = factor(1:3)) %>%
+  gather(metric, value, -Customer_Segment) %>%
+  group_by(Customer_Segment,metric) %>%
+  ungroup() %>%
+  mutate(metric = fct_relevel(metric, "RecencyDays","Frequency","Spend")) %>%
+  ggplot(aes(x=factor(metric),y=value,group=Customer_Segment,colour = Customer_Segment)) +
+  geom_line(size=1.5) +
+  geom_point(size=2) +
   theme_light()
 

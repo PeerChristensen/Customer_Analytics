@@ -1,3 +1,5 @@
+# Retention rate visualization
+
 library(tidyverse)
 library(readxl)
 library(lubridate)
@@ -65,5 +67,16 @@ retention_rate_melt     %>%
   labs(y= "cohort start month",
        x = "month #") +
   guides(fill=FALSE)
+
+# retention lines
+
+retention_rate_melt %>% 
+  rename(Day = variable) %>%
+  ggplot(aes(x=Day,y=value, colour = factor(date_col), group=date_col)) +
+  geom_line(size=1.5) +
+  geom_point(size=1.5) +
+  theme_light() +
+  theme(axis.text  = element_text(size = 14),
+        axis.title = element_text(size = 16))
 
 

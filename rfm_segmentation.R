@@ -1,4 +1,4 @@
-# RFM segmentation
+# RFM segmentation: RFM score
 
 library(tidyverse)
 library(readxl)
