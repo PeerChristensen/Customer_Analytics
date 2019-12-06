@@ -41,9 +41,14 @@ frequency <- df %>%
   summarise(Frequency = n()) %>%
   mutate(F_Quantile = ntile(Frequency, 4)) # quartile
 
+tenure <- df %>%
+  group_by(CustomerID) %>%
+  summarise(Tenure = as.numeric(last_date - min(as_date(InvoiceDate)))) %>%
+  mutate(T_Quantile = ntile(Tenure, 4)) # quartile
+
 # JOIN
 
-rfm <- list(recency,frequency,monetary) %>% 
+rfm <- list(recency,frequency,monetary,tenure) %>% 
   reduce(left_join) %>%
   filter(!is.na(CustomerID)) %>%
   filter(Spend > 0)
@@ -51,21 +56,21 @@ rfm <- list(recency,frequency,monetary) %>%
 # add rfm segment and score 
 
 rfm %<>%
-  mutate(RFM_Segment = paste0(R_Quantile,F_Quantile,M_Quantile),
-         Score   = R_Quantile+F_Quantile+M_Quantile)
+  mutate(RFM_Segment = paste0(R_Quantile,F_Quantile,M_Quantile,T_Quantile),
+         Score   = R_Quantile+F_Quantile+M_Quantile+T_Quantile)
 
 # assign customer segment based on rfm score
 
 rfm %<>%
-  mutate(Customer_Segment = case_when(Score > 8 ~ "Gold",
-                                      Score > 4 ~ "Silver",
+  mutate(Customer_Segment = case_when(Score > 12 ~ "Gold",
+                                      Score > 8 ~ "Silver",
                                       Score > 0 ~ "Bronze")) %>%
   mutate(Customer_Segment = fct_relevel(Customer_Segment,"Gold","Silver","Bronze"))
 
 # preprocess data: log, center, scale 
 
 rfm_norm <- rfm %>%
-  select(RecencyDays,Frequency,Spend) %>% 
+  select(RecencyDays,Frequency,Spend,Tenure) %>% 
   apply(2,function(x) log(x+1)) %>%
   apply(2, function(x) round(x-mean(x,na.rm=T),1)) %>%
   scale() %>%
@@ -75,20 +80,20 @@ rfm_norm <- rfm %>%
 
 # K-means clustering
 
-fviz_nbclust(rfm_norm[,1:3], kmeans, method = "wss") # 3 clusters is reasonable
+fviz_nbclust(rfm_norm[,1:4], kmeans, method = "wss")
 
-rfm_clust <- kmeans(rfm_norm[,1:3], centers=3, nstart = 25)
+rfm_clust <- kmeans(rfm_norm[,1:4], centers=4, nstart = 25)
 
 table(rfm$Customer_Segment,rfm_clust$cluster)
 
-fviz_cluster(rfm_clust, data = rfm_norm[,1:3], geom=c("point")) +
+fviz_cluster(rfm_clust, data = rfm_norm[,1:4], geom=c("point")) +
   theme_light()
 
 # snake plot with cluster means
 
 rfm_clust$centers %>% 
   as_tibble() %>%
-  mutate(Customer_Segment = factor(1:3)) %>%
+  mutate(Customer_Segment = factor(1:4)) %>% # last val = n clusters
   gather(metric, value, -Customer_Segment) %>%
   group_by(Customer_Segment,metric) %>%
   ungroup() %>%
