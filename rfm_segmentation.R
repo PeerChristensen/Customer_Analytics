@@ -20,9 +20,9 @@ monetary <- df %>%
   mutate(M_Quantile = ntile(Spend, 4)) # quartile
 
 # check mean and min for each quartile
-monetary %>% group_by(Quantile) %>% summarise(mean = mean(Spend))
+monetary %>% group_by(M_Quantile) %>% summarise(mean = mean(Spend))
 
-monetary %>% group_by(Quantile) %>% summarise(min = min(Spend))
+monetary %>% group_by(M_Quantile) %>% summarise(min = min(Spend))
 
 # RECENCY
 
@@ -47,33 +47,33 @@ last_date <- max(as_date(df$InvoiceDate))
 tenure <- df %>%
   group_by(CustomerID) %>%
   summarise(Tenure = as.numeric(last_date - min(as_date(InvoiceDate)))) %>%
-  mutate(T_Quantile = ntile(desc(Tenure), 4)) # quartile
+  mutate(T_Quantile = ntile(Tenure, 4)) # quartile
 
 # JOIN
 
-rfm <- list(recency,frequency,monetary) %>% 
+rfm <- list(recency,frequency,monetary,tenure) %>% 
   reduce(left_join)
 
 # add rfm segment and score 
 
-rfm %<>%
-  mutate(RFM_Segment = paste0(R_Quantile,F_Quantile,M_Quantile),
-         Score   = R_Quantile+F_Quantile+M_Quantile)
+rfm <- rfm %>%
+  mutate(RFM_Segment = paste0(R_Quantile,F_Quantile,M_Quantile,T_Quantile),
+         Score   = R_Quantile+F_Quantile+M_Quantile+T_Quantile)
   
 # size of each segment
 
 rfm %>% 
-  group_by(RFM_Segment)  %>% 
+  group_by(RFM_Segment) %>% 
   summarise(n = n()) %>% 
   arrange(desc(n))
 
 # assign customer segment based on rfm score
 
-rfm %<>%
-  mutate(Customer_Segment = case_when(Score > 8 ~ "Gold",
-                                      Score > 4 ~ "Silver",
+rfm <- rfm %>%
+  mutate(Customer_Segment = case_when(Score > 12 ~ "Gold",
+                                      Score > 8 ~ "Silver",
                                       Score > 0 ~ "Bronze")) %>%
-  mutate(Customer_Segment = fct_relevel(Customer_Segment,"Gold","Silver","Bronze"))
+  mutate(Customer_Segment = fct_relevel(Customer_Segment,"Gold","Silver","Bronze")) 
 
 
 # rfm summary of customer segments
@@ -82,8 +82,14 @@ rfm %>%
   group_by(Customer_Segment) %>%
   summarise(R_mean = mean(RecencyDays),
             F_mean = mean(Frequency),
-            M_mean = mean(Spend))
+            M_mean = mean(Spend),
+            T_mean = mean(Tenure))
 
+# n customers per segment
+
+rfm %>%
+  group_by(Customer_Segment) %>%
+  count()
 
 # define colours (gold, silver, bronze)
 
@@ -107,23 +113,28 @@ rfm %>%
   scale_fill_manual(values = cols) +
   theme_light()
 
+rfm %>%
+  ggplot(aes(x = Tenure, fill = Customer_Segment)) +
+  geom_density(alpha = .7)  +
+  scale_fill_manual(values = cols) +
+  theme_light()
+
 # plot faceted distribution with long format
 
 rfm %>% 
   mutate(RecencyDays = log(RecencyDays),Frequency = log(Frequency), Spend = log(Spend+1)) %>%
-  select(CustomerID,Customer_Segment,RecencyDays,Frequency,Spend) %>% 
-  group_by(Customer_Segment,CustomerID) %>% 
-  gather(metric, value, -CustomerID, - Customer_Segment) %>%
+  pivot_longer(c(RecencyDays,Frequency,Spend,Tenure)) %>%
+  #gather(metric, value, -CustomerID, - Customer_Segment) %>%
   ggplot(aes(x=value, fill = Customer_Segment)) +
   geom_density(alpha=.7) +
-  facet_wrap(~metric,scales = "free") +
+  facet_wrap(~name,scales = "free") +
   scale_fill_manual(values = cols) +
   theme_light()
 
 # preprocess data: log, center, scale
 
 rfm_norm <- rfm %>%
-  select(RecencyDays,Frequency,Spend) %>% 
+  select(RecencyDays,Frequency,Spend,Tenure) %>% 
   apply(2,function(x) log(x+1)) %>%
   apply(2, function(x) round(x-mean(x,na.rm=T),1)) %>%
   scale() %>%
@@ -138,7 +149,7 @@ rfm_norm %>%
   group_by(Customer_Segment,metric) %>%
   summarise(value = mean(value, na.rm = T)) %>%
   ungroup() %>%
-  mutate(metric = fct_relevel(metric, "RecencyDays","Frequency","Spend")) %>%
+  mutate(metric = fct_relevel(metric, "RecencyDays","Frequency","Spend","Tenure")) %>%
   ggplot(aes(x=factor(metric),y=value,group=Customer_Segment,colour = Customer_Segment)) +
   geom_line(size=1.5) +
   geom_point(size=2) +
@@ -148,30 +159,40 @@ rfm_norm %>%
 # relative variable importance
 
 group_means <- rfm %>%
+  select(Customer_Segment, RecencyDays,Frequency,Spend,Tenure) %>%
   group_by(Customer_Segment) %>%
-  summarise(Recency = mean(RecencyDays),
-            Frequency = mean(Frequency),
-            Monetary = mean(Spend,na.rm=T)) %>%
-  select(-Customer_Segment)
+  summarise(pop_recency = mean(RecencyDays),
+         pop_frequency = mean(Frequency),
+         pop_monetary = mean(Spend,na.rm=T),
+         pop_tenure = mean(Tenure)) 
 
 pop_means <- rfm %>%
+  select(Customer_Segment, RecencyDays,Frequency,Spend,Tenure) %>%
   summarise(Recency = mean(RecencyDays),
             Frequency = mean(Frequency),
-            Monetary = mean(Spend,na.rm=T)) %>% 
-  as_vector()
+            Monetary = mean(Spend,na.rm=T),
+            Tenure = mean(Tenure))
 
-relative_imp <- group_means %>% 
-  apply(2,function(x) x / pop_means - 1) %>%
-  as_tibble() %>%
-  mutate(Customer_Segment = levels(rfm$Customer_Segment)) %>%
-  select(Customer_Segment, everything())
+
+relative_imp <- group_means %>%
+  mutate(Recency = Recency / pop_means$Recency -1,
+         Frequency = Frequency / pop_means$Frequency - 1,
+         Monetary = Monetary / pop_means$Monetary - 1,
+         Tenure = Tenure / pop_means$Tenure -1) %>%
+  mutate(Customer_Segment = levels(rfm$Customer_Segment))
+
+# relative_imp <- group_means %>% 
+#   apply(2,function(x) x / pop_means - 1) %>%
+#   as_tibble() %>%
+#   mutate(Customer_Segment = levels(rfm$Customer_Segment)) %>%
+#   select(Customer_Segment, everything())
 
 # relative variable importance heatmap
 
 relative_imp %>%
   gather(metric, value, - Customer_Segment) %>%
   mutate(Customer_Segment = fct_relevel(Customer_Segment, "Bronze","Silver","Gold"),
-         metric = fct_relevel(metric, "Recency", "Frequency", "Monetary")) %>%
+         metric = fct_relevel(metric, "Recency", "Frequency", "Monetary","Tenure")) %>%
   ggplot(aes(x = metric, y = Customer_Segment)) +
     geom_raster(aes(fill= value)) +
     geom_text(aes(label = glue::glue("{round(value,2)}")), size = 10, color = "snow") +
